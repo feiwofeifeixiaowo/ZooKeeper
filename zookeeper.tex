@@ -1,0 +1,545 @@
+\documentclass[10pt]{beamer}
+\usetheme{metropolis}
+\usepackage{appendixnumberbeamer}
+\usepackage{booktabs}
+% \usepackage{xeCJK}
+\usepackage{indentfirst}%首行缩进
+\usepackage{ctex}
+% \setmainfont{SimSun}
+\usepackage[scale=2]{ccicons}
+\usepackage{pgfplots}
+\usepgfplotslibrary{dateplot}
+\usepackage{xspace}
+% \setlength{\parindent}{2em}%首行缩进
+\newcommand{\themename}{\textbf{\textsc{metropolis}}\xspace}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%首页简介
+\title{Introduction to ZooKeeper}
+\subtitle{A Wait-free coordination for Internet-scale systems}
+\date{\today}
+\author{yunxi}
+\institute{Computer Science of SCNU}
+% \titlegraphic{\hfill\includegraphics[height=1.5cm]{logo.pdf}}
+%整个文件开始
+\begin{document}
+%生成首页简介
+\maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%目录生成
+\begin{frame}{Table of contents}
+  \setbeamertemplate{section in toc}[sections numbered]
+  \tableofcontents[hideallsubsections]
+\end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{What is distributed system?}
+
+\begin{frame}[fragile]{What is distributed system?}
+     A distributed system consists of multiple computers that communicate through a computer network and interact with each other to achieve a common goal.\newline \newline
+  \rightline{--Wikipedia}
+\end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{初识ZooKeeper}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  ZooKeeper 是一个开放源代码的分布式协调服务，由知名互联网公司雅虎创建，是Google Chubby的开源实现。ZooKeeper的设计目标是将那些复杂且容易出错的分布式一致性服务封装起来，构成一个高效可靠的原语集，并以一系列简单易用的接口提供给用户使用。
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  ZooKeeper是一个典型的分布式数据一致性的解决方案，分布式应用程序可以基于它实现诸如数据发布/订阅、负载均衡、命名服务、分布式协调/通知、集群管理、Master选举、分布式锁和分布式队列等功能。
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{ZooKeeper可以保证如下分布式一致性特性}
+    \newline
+    \begin{itemize}
+      \item 顺序一致性
+      \item 原子性
+      \item 单一视图(Single System Image)
+      \item 可靠性
+      \item 实时性
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{ZooKeeper的设计目标}
+    \newline
+  ZooKeeper致力于提供一个高性能、高可用，具有严格顺序访问控制能力(主要针对写操作的严格顺序性)的分布式协调服务。高性能使得ZooKeeper能够应用于那些系统吞吐量有明确要求的大型分布式系统中，高可用使得分布式的单点问题得到了很好的解决，而严格的顺序访问控制使得客户端能够基于ZooKeeper实现一些复杂的同步原语。
+  \end{alertblock}
+  \begin{itemize}
+    \item 1.简单的数据模型
+    \item 2.可以构建集群
+    \item 3.顺序访问
+    \item 4.高性能
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{1.简单的数据模型}
+    \newline
+    ZooKeeper使得分布式程序能够通过一个共享的、树形结构的名字空间来进行相互协调。这里所说的树形结构的名字空间，是指ZooKeeper服务器内存中的一个数据模型，其由一系列的Znode数据节点组成。其数据模型类似于一个文件系统，而Znode之间的层次关系，就像文件系统的目录结构一样。不过ZooKeeper将全量数据存储在内存中，以此来提高服务器的吞吐、减少延迟的目的。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{2.可以构建集群}
+    \newline
+    一个ZooKeeper 集群通常由一组机器组成，一般3-5台机器可以组成一个可用ZooKeeper集群。如下图：\newline
+    组成ZooKeeper集群的每台机器都会在内存中维护当前的服务器状态，并且每台机器之间都互相保持通信。只要集群中超过一半的机器能正常工作，整个集群就能对外服务。\newline
+    ZooKeeper的客户端程序会选择和集群中任意一台机器共同创建一个TCP连接，而一旦客户端和某台ZooKeeper服务器之间的连接断开后，客户端会自动连接到集群中的其他机器。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{2.可以构建集群}
+    \begin{figure}
+      \begin{center}
+        \includegraphics[width=10cm,height=6cm]{pic/server.png}
+      \end{center}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{3.顺序访问}
+    \newline
+    对于来自客户端的每个更新请求，ZooKeeper都会分配一个全局唯一的递增编号，这个编号反映了所有事务操作的先后顺序，应用程序可以使用这个特性来实现更高层次的同步原语。\newline
+    在ZooKeeper中事务是：能改变ZooKeeper服务器状态的操作，也称之为事务操作或更新操作，一般包括数据节点的创建与删除、数据节点内容更新和客户端会话创建与失效等操作。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{初识ZooKeeper}
+  \begin{alertblock}{4.高性能}
+    \newline
+    由于ZooKeeper将全量数据存储在内存中，并直接服务于客户端的所有非事务请求，因此它尤其适用于以读操作为主的应用场景。
+  \end{alertblock}
+\end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{ZooKeeper系统模型}
+
+%\ldots  省略号
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  \begin{itemize}
+    \item 集群角色
+    \item 会话(Session)
+    \item 数据模型(Znode)
+    \item 事件监听器(Watcher)
+    \item ACL(Access Control Lists)%略
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  \begin{alertblock}{集群角色}
+    \begin{itemize}
+      \item Leader 为客户端提供读和写服务,负责投票的发起和决议，更新系统状态
+      \item Follower(Learner) 提供读服务，所有写服务都需要转交给Leader角色，参与Leader选举
+      \item Observer(Learner) 提供读服务，不参与选举过程，一般是为了增强zk集群的读请求并发能力
+      \item Client 请求发起
+  \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+\begin{figure}
+  \includegraphics[scale=0.3]{pic/follower.png}
+  \caption{集群角色示意图}
+\end{figure}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  \begin{alertblock}{Session}
+  Client与ZooKeeper之间的通信，需要创建一个Session，这个Session会有一个超时时间。因为ZooKeeper集群会把Client的Session信息持久化，所以在Session没超时之前，Client与ZooKeeper Server的连接可以在各个ZooKeeper Server之间透明地移动。\newline
+  在实际的应用中，如果Client与Server之间的通信足够频繁，Session的维护就不需要其它额外的消息了。否则，ZooKeeper Client会每t/3 ms发一次心跳给Server，如果Client 2t/3 ms没收到来自Server的心跳回应，就会换到一个新的ZooKeeper Server上。这里t是用户配置的Session的超时时间。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  %图文混排，左右分栏
+  \begin{columns}
+  \column{.5\textwidth}
+
+  \begin{block}{数据模型图}
+    \begin{figure}
+      \begin{center}
+        \raggedleft \includegraphics[scale=0.1]{pic/datamodel.jpeg}
+      \end{center}
+    \end{figure}
+  \end{block}
+
+  \column{.5\textwidth}
+
+  \begin{block}{数据模型}
+      \begin{itemize}
+        \item 分层结构
+        \item 图中每个节点称为Znode
+        \item 每个Znode都有数据 byte[]类型 ，也可以有子节点
+        \item 节点路径
+          \begin{itemize}
+            \item 斜线分隔: /Zoo/Duck
+            \item 没有相对路径
+          \end{itemize}
+        \item 通过数据结构stat存储数据的变化、ACL的变化和时间戳
+        \item 数据发生变化时，版本号会递增(即使更新操作并没有真正改变数据内容 a=0,a=0)
+        \item 可以对Znode中的数据进行读写操作
+      \end{itemize}
+  \end{block}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+%%table的使用
+  \begin{table}
+    \caption{Stat对象状态属性说明}\center
+    \begin{tabular}{lr}
+      \toprule
+      状态属性 & 说明\\
+      \midrule
+      czxid & 数据节点被创建时的事务ID\\
+      mzxid & 节点最后一次被更新时的事务ID\\
+      ctime & Create Time\\
+      mtime & Modified Time\\
+      version & 数据节点的版本号\\
+      cversion & 子节点的版本号\\
+      aversion & 节点的ACL版本号\\
+      ephemeralOwner & 创建该临时节点的会话的sessionID\\
+      dataLength & 数据内容的长度\\
+      numChildren & 当前节点的子节点个数\\
+
+      % czxid & 即Create ZXID，表示该数据节点被创建时的事务ID\\
+      % mzxid & 即Modified ZXID，表示该节点最后一次被更新时的事务ID\\
+      % ctime & Create Time\\
+      % mtime & Modified Time\\
+      % version & 数据节点的版本号\\
+      % cversion & 子节点的版本号\\
+      % aversion & 节点的ACL版本号\\
+      % ephemeralOwner & 创建该临时节点的会话的sessionID，如果是持久节点，该属性为0\\
+      % dataLength & 数据内容的长度\\
+      % numChildren & 当前节点的子节点个数\\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  \begin{alertblock}{Znode Types}
+    \begin{itemize}
+      \item 持久节点(Persistent)
+      \item 临时节点(Ephemeral) (die when session expires, or node close connection)
+      \item 临时顺序节点(Ephemeral Sequential)
+      \item 持久顺序节点(Persistent Sequential)
+    \end{itemize}
+  \end{alertblock}
+  \begin{figure}
+    Sequential
+    \begin{center}
+      \includegraphics[width=10cm]{pic/sequential.png}
+    \end{center}
+    非Sequential
+    \begin{center}
+      \includegraphics[width=10cm]{pic/unsequential.png}
+    \end{center}
+  \end{figure}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+  \begin{alertblock}{Znode Watches}
+    A watch event is one-time trigger, sent to the client that set the watch, which occurs when the data for which the watch was set changes.\newline \newline
+    watch可以理解为一个分布式的回调(callback),当client关心的znodes发生变化(Watched event)时,zookeeper将会把消息传回到client,并导致client的消息处理函数得到调用.zk的任何一个读操作都能够设置watch。\newline
+    例如:getData(), getChildren(), and  exists()
+  \end{alertblock}
+  watcher 特性总结
+  \begin{itemize}
+    \item 一次性
+    \item 客户端串行执行
+    \item 轻量
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper系统模型}
+
+  \begin{table}
+    \caption{ZooKeeper API}\center
+    \begin{tabular}{lr}
+      \toprule
+      操作 & 描述\\
+      \midrule
+      create & 创建一个znode(必须要有父节点，创建时可以设置数据)\\
+      delete & 删除一个znode(该znode不能有任何子节点)\\
+      exists & 测试一个znode是否存在并且查询它的元数据\\
+      getACL,setACL & 获取/设置一个znode的ACL\\
+      getChildren & 获取一个znode的子节点列表\\
+      getData,setData & 获取/设置一个znode所保存的数据\\
+      % sync & 将客户端的znode视图与ZooKeeper同步\\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+\end{frame}
+% \begin{frame}[fragile]{ZooKeeper系统模型}
+%   \begin{alertblock}{ACL(Access Control Lists)}
+%     \begin{itemize}
+%       \item 类似于linux/unix的权限控制
+%       \item Follower 提供读服务，所有写服务都需要转交给Leader角色，参与Leader选举
+%       \item Observer 提供读服务，不参与选举过程，一般是为了增强zk集群的读请求并发能力
+%   \end{itemize}
+%   \end{alertblock}
+% \end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{ZooKeeper典型的应用场景}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{ZooKeeper典型的应用场景}
+    \begin{itemize}
+      \item 数据发布/订阅
+      \item 负载均衡
+      \item 命名服务
+      \item 分布式协调/通知
+      \item 集群成员管理(Group membership)
+      \item Master选择
+      \item 分布式锁
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{数据发布/订阅}
+    数据发布/订阅系统，即所谓配置中心，顾名思义就是发布者将数据发布到ZooKeeper的一个或一系列节点上，供订阅者进行数据订阅，进而达到动态获取数据的目的，实现配置信息的集中式管理和数据的动态更新。\newline
+    ZooKeeper实现方式：客户端向服务端注册自己需要关注的节点，一旦该节点的数据发生变更，服务端就会向相应的客户端发送Watcher事件通知，客户端收到消息通知后，主动去服务端获取最新的数据。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{数据发布/订阅事例，数据库切换}
+    \newline\newline
+    在进行配置管理之前，首先我们需要将初始化配置存储到ZooKeeper上，图中使用/app1/database\_config 作为配置节点
+    \begin{figure}
+      \includegraphics[scale=0.1]{pic/database_config.jpeg}
+      \caption{配置管理ZooKeeper节点示意图}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{数据发布/订阅事例，数据库切换}
+    数据库配置信息：\newline
+    #DBCP\newline
+    dbcp.driverClassName=com.mysql.jdbc.Driver\newline
+    dbcp.dbJDBCUrl=jdbc:mysql://1.1.1.1:3306/zzz\newline
+    dbcp.characterEncoding=GBK\newline
+    dbcp.username=genshuo\newline
+    dbcp.password=123456\newline
+    dbcp.maxActive=30\newline
+    dbcp.maxIdle=10\newline
+    dbcp.maxWait=10000
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{数据发布/订阅事例，数据库切换}
+    \begin{itemize}
+      \item 配置获取：集群中的每台机器在初始化阶段，首先会从上面提到的配置节点桑读取数据库信息，同时客户端在配置节点上注册一个数据变更Watcher监听，一旦发生节点数据变更，所有订阅的客户端都能获取到数据变更通知。
+      \item 配置变更：在系统运行过程中，可能会出现需要进行数据库切换的情况，这时候数据库信息变更，借助ZooKeeper我们只需要对ZooKeeper上的配置节点的数据内容进行更新，ZooKeeper就能到将数据变更通知发送到各个客户端，每个客户端在获取到这个变更通知后，就可以重新进行最新的数据获取。
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{命名服务}
+    命名服务(Name Service)也是分布式系统中比较常见的一类场景，在分布式系统中被命名的试题通常可以是集群中的机器、提供的服务地址等--我们统称为名字(Name)。通过命名服务，客户端应用能够根据指定名字来获取资源的实体，服务地址和提供者的信息等。
+    在分布式环境中，上层仅仅需要一个全局唯一的名字，类似于数据库中的唯一主键。下面主要讨论ZooKeeper来实现分布式全局唯一的ID的分配机制
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{命名服务}
+    通过调用ZooKeeper创建节点的API可以创建一个顺序节点，并且在API返回值中会返回这个节点的完整名字。
+    \begin{figure}
+      \includegraphics[scale=0.1]{pic/nameservice.jpeg}
+      \caption{全局唯一IDE生成 ZooKeeper节点示意图}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{命名服务}
+    \begin{itemize}
+      \item 1.所以客户端都会根据自己的任务类型，在指定类型任务下create()创建一个顺序节点，例如“job-“节点。
+      \item 2.节点创建完毕后，create()接口返回一个完整的节点名，如“job-0000000003”
+      \item 3.客户端拿到这个返回值后，拼接上type类型，如“type2-job-0000000003”，这便可以作为一个全局唯一ID
+      \item 4.相比于JAVA中的UUID，不紧解决了长度过长，且含义不明的问题
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{Master选择}
+    \begin{itemize}
+      \item 根据create()API 的强一致性，能够保证在分布式高并发情况下节点的创建一定能全局唯一，即ZooKeeper保证无法创建一个已经存在的数据节点。
+      \item 1.首先会在ZooKeeper上创建一个日期节点，如“2016-11-01”
+      \item 2.客户端每天会定时往ZooKeeper上创建一个临时节点，如/master\_election/2016-11-01/binding，在这个过程中只有一个客户端可以创建成功，那么这个客户端所在的机器就成为了Master。
+      \item 3.同时，其他没有在ZooKeeper上成功创建节点的客户端，都会在节点/master\_election/2016-11-01上注册一个子节点变更的Watcher，用于监控当前的Master机器是否存活，一旦挂了，其余的客户端会重新进行Master选举。
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{分布式排他锁}
+    分布式锁是控制分布式系统之间同步访问共享资源的一种方式。\newline
+    排他锁又称为写锁、独占锁，是一种基本的锁类型。如果事务T1 对数据对象O1 加上了排它锁，那么在整个加锁期间，只允许事务T1对O1进行读取和更新操作，其他任何事务都不能再对这个数据对象进行任何类型的操作--直到T1释放了排他锁。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{排他锁}
+    \newline\newline
+    \begin{figure}
+      \includegraphics[scale=0.1]{pic/exlock.jpeg}
+      \caption{排他锁的流程图}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{定义锁}
+    通过在ZooKeeper上的数据节点表示一个锁，例如/exclusive\_lock/lock节点就可以被定义为一个锁。
+    \begin{itemize}
+      \item 需要获取排他锁时，所以客户端会尝试通过create()接口在/exclusive\_lock节点下创建临时子节点/exclusive\_lock/lock。
+      \item ZooKeeper会保证在所有客户端中，最终只有一个客户端创建成功，该客户端接获取了锁。
+      \item 同时所以没有获取到锁的客户端就需要在/exclusive\_lock节点上注册一个子节点变更的Watcher监听，以便于实时监听到lock节点的变更情况。
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{释放锁}
+    在“定义锁”部分，我们提到/exclusive\_lock是一个临时节点，因此在一下两种情况下，都可能释放锁。
+    \begin{itemize}
+      \item 当前获取锁的客户端机器发生宕机，那么ZooKeeper上的这个临时节点会被移除
+      \item 正常执行完成业务逻辑后，客户端会自动将创建的临时节点删除
+    \end{itemize}
+    无论在那种情形下移除了lock节点，ZooKeeper都会通知所有在/exclusive\_lock节点上注册了节点变更Watcher监听的客户端。接受到通知后，再次重新发起分布式获取。
+  \end{alertblock}
+\end{frame}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{ZooKeeper在分布式系统中的应用}
+
+\begin{frame}[fragile]{ZooKeeper在大型分布式系统中的应用}
+  \begin{alertblock}{ZooKeeper在大型分布式系统中的应用}
+    \begin{itemize}
+      \item Hadoop
+      \item HBase
+      \item \ldots
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper在大型分布式系统中的应用}
+  \begin{alertblock}{Hadoop}
+      \begin{itemize}
+        \item Hadoop 简介
+        \item ZooKeeper在其中的应用
+        \item \ldots
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{Hadoop简介}
+    \newline\newline
+    \begin{figure}
+      \includegraphics[scale=0.25]{pic/hadoop.png}
+      \caption{Hadoop 生态圈}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper在大型分布式系统中的应用}
+  \begin{alertblock}{Hadoop}
+    Hadoop中，ZooKeeper主要用于实现HA(High Availability),在HDFS的NameNode与YARN的ResourceManager都是基于此HA模块来实现自己的HA功能的。\newline
+    接下来主要以Cloudera 5.X 发布版本为例，围绕YARN中ZooKeeper的使用场景介绍。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper在大型分布式系统中的应用}
+  \begin{alertblock}{YARN}
+    YARN是Hadoop为了提高计算节点Master(JT)的扩展性，同时为了支持计算模型和提供资源的细粒度调度而引入的全新一代分布式调度框架。YARN上可以支持MapReduce计算引擎及其他如Spark、Storm等。\newline
+    其架构体系如图：
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{YARN}
+    \newline\newline
+    \begin{figure}
+      \includegraphics[scale=0.12]{pic/YARN.jpeg}
+      \caption{YARN架构体系}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{YARN}
+    从上图可以看出，YARN主要由ResourceManager(RM)、NodeManager(NM)、ApplicationMaster(AM)和Container四部分组成。其中最核心的就是ResourceManager，它作为全局的资源管理器，负责整个系统的资源管理和分配。\newline
+    ResourceManager单点问题，RM负责集群中所有资源的统一管理和分配，同时接收来自各个节点(NodeManager)的资源汇报信息，并把这些信息按照一定的策略分配给应用程序(Application Manager).因此ResourceManager的工作状况直接决定了YARN框架是否可以正常运转。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{ResourceManager HA}
+    为了解决ResourceManager单点问题，YARN设计了一套Active/Standby 模式的架构
+    \newline
+    \begin{figure}
+      \includegraphics[scale=0.15]{pic/YARNHA.jpeg}
+      \caption{YARN HA架构}
+    \end{figure}
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{YARN}
+    在运行期间，会有多个ResourceManager 并存，并且其中有一个ResourceManager处于Active状态，另外一些(一个或多个)处于Standby状态，当Active节点无法正常工作时(宕机/重启)，其余处于Standby状态的节点则会通过竞争选举产生新的Active节点。
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}[fragile]{ZooKeeper典型的应用场景}
+  \begin{alertblock}{YARN ResourceManager 主备切换}
+    \begin{itemize}
+      \item 1.创建锁节点（临时节点）
+      \item 2.注册Watcher监听
+      \item 3.主备切换（锁失效，重复步骤1）
+    \end{itemize}
+  \end{alertblock}
+\end{frame}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Reference}
+
+\begin{frame}{Summary}
+
+  theme metropolis
+
+  \url{github.com/matze/mtheme}
+
+  Paper：A Wait-free coordination for Internet-scale systems
+
+  Book：从Paxos到ZooKeeper分布式一致性原理与实战
+
+  \begin{center}\ccbysa\end{center}
+
+\end{frame}
+
+\begin{frame}[standout]
+  Thanks！
+\end{frame}
+
+\begin{frame}[standout]
+  Questions?
+\end{frame}
+
+% \section{为什么选择ZooKeeper?(优势)}
+% \section{ZAB协议简介(对比Paxos协议)}
+% \section{ZooKeeper典型的应用场景}
+% \section{ZooKeeper在大型分布式系统中的应用}
+% \section{ZooKeeper使用简介}%1.部署与运用 2.API使用示例 3.开源客户端使用ZClient
+
+\end{document}
